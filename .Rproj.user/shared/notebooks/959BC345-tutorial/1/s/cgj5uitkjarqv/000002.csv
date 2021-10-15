@@ -1,0 +1,7 @@
+"0","mod_AE <- lmer("
+"0","  formula = y ~ (1 | j / k), data = dat, REML = FALSE,"
+"0","  control = lmerControl("
+"0","    optimizer = equal_variance_fun, "
+"0","    calc.derivs = FALSE"
+"0","    )"
+"0","  )"

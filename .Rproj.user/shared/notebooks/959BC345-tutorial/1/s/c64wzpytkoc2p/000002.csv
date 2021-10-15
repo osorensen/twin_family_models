@@ -1,0 +1,1 @@
+"0","mod_CE <- lmer(formula = y ~ (1 | j), data = dat, REML = FALSE)"

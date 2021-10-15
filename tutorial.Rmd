@@ -1,0 +1,306 @@
+---
+title: "Fitting ADCE Models with lme4 and gamm4"
+author: "Øystein Sørensen"
+date: "10/15/2021"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE}
+library(tidyverse)
+library(lme4)
+library(gamm4)
+```
+
+This document described how to fit ADCE models with mixed model software. We follow [Rabe-Hesketh, Skrondal, and Gjessing (2008)](https://doi.org/10.1111/j.1541-0420.2007.00803.x), Section 4.2.
+
+# Data Structure
+
+I have simulated an example dataset, which I now load. 
+
+```{r}
+dat <- readRDS("data/example_data.rds")
+```
+
+If you wonder how the dataset was simulated, take a look in `code/create_example_data.R`. Here are the first rows of the dataset.
+
+```{r}
+head(dat)
+```
+
+Some comments to the structure:
+
+- Index variable `j` denotes the twin pair.
+- Index variable `i` denotes the twin inside the twin pair.
+- Index variable `k` enumerates dizygotic twins inside the twin pair. If the pair is monozygotic, `k = 1` for both, but if the pair is dizygotic, `k = 1` for one and `k = 2` for the other.
+
+Variables `j` and `i` are sufficient to identify the twins, but variable `k` is necessary to distinguish dizygotic from monozygotic twins.
+
+The variable name `type` is not used in the analyses, but was included to aid interpretation. Variable `y` is the outcome of interest. We can also add explanatory variables, but have not done it here.
+
+# Linear Mixed Models
+
+Given the data above, we it the following mixed model:
+
+$$y_{ij} = \beta_{0} + u_{kj} + u_{j} + \epsilon_{ij}$$
+
+Again some comments:
+
+- $y_{ij}$ is the outcome for twin $i$ in twin pair $j$.
+- $\beta_{0}$ is the fixed intercept. Because we have this effect here, the random effects will describe deviation from the average.
+- $u_{kj}$ is a random intercept which takes on a unique value for each $k$ and $j$. Hence, for monozygotic twin pairs, both will have the same value of $u_{kj}$ since they have the same indices $k$ and $j$. On the other hand, dizygotic twins will have different values of $u_{kj}$, since they have different values of $k$. This effect hence captures the additional difference between twin pairs that are dizygotic compared to monozygotic.
+- $u_{j}$ is a random intercept which takes on the same value for each twin pair. This effect hence captures both common genetic effects and common environment effects. The formulas given in the next section will show how we disentangle these effects.
+- $\epsilon_{ij}$ is the unique effect of twin $i$ in pair $j$. But since this is the residual, it will also contain measurement errors in $y_{ij}$.
+
+Using `lme4` we fit the model as this:
+
+```{r}
+mod <- lmer(formula = y ~ (1 | j / k), 
+            data = dat, REML = FALSE)
+```
+
+Again some comments:
+
+- The formula argument `y ~ (1 | j / k)` specifies that we want random intercepts defined by `1`, for each cluster in the hierarchy defined by `j / k`. The notation `j / k` means `k` nested within `j`. 
+- The formula argument implicitly includes a fixed intercept. That is, writing `y ~ (1 | j / k)` is identical to writing `y ~ 1 + (1 | j / k)`.
+- I set `REML = FALSE` to get maximum likelihood estimates. This likely has negligible effect, but is necessary when we want to compare models.
+
+We can look at the model summary, but at this point the random effects are not yet interpretable the way we want.
+
+```{r}
+summary(mod)
+```
+
+We do however define the following notation, which will be useful in the next step:
+
+- $\text{Var}(u_{kj})$ is the variance of the component $u_{kj}$. 
+- $\text{Var}(u_{j})$ is the variance of the component $u_{j}$.
+- $\text{Var}(\epsilon_{ij})$ is the variance of the residual $\epsilon_{ij}$.
+
+We can obtain the values of these components from the model fit. 
+
+```{r}
+print(VarCorr(mod), comp = "Variance")
+```
+
+We save these variance for use later (sorry, the syntax is a bit messy here, and there's nothing I can do about it):
+
+```{r}
+varcomps <- as.data.frame(VarCorr(mod))[, "vcov"]
+names(varcomps) <- c("VarU_kj", "VarU_j", "Var_eps")
+varcomps
+```
+
+
+# Converting Mixed Model Outputs to ACE or ADE Estimates
+
+From the mixed model we fitted above, we can get estimates for both an ACE model and an ADE model. We start by defining the following parameters:
+
+- $\sigma_{A}^{2}$ is the additive genetic component.
+- $\sigma_{D}^{2}$ is the dominance genetic component.
+- $\sigma_{C}^{2}$ is the common environment component.
+- $\sigma_{E}^{2}$ is the unique environment component.
+
+## ACE Model
+
+The variance components of the ACE model are related to the variance components of our mixed model through the following formulas:
+
+$$\sigma_{A}^{2} = 2 \times \text{Var}(u_{kj})$$
+$$\sigma_{C}^{2} = \text{Var}(u_{j}) - \text{Var}(u_{kj})$$
+
+$$\sigma_{E}^{2} = \text{Var}(\epsilon_{ij})$$
+
+In R code, using the values in `varcomps` that we saved above, this becomes:
+
+```{r}
+(additive_genetic_component <- 2 * varcomps[["VarU_kj"]])
+(common_env_component <- varcomps[["VarU_j"]] - varcomps[["VarU_kj"]])
+(unique_env_component <- varcomps[["Var_eps"]])
+```
+
+Some comments:
+
+- `additive_genetic_component` is the additive genetic variance, $\sigma_{A}^{2}$.
+- `common_env_component` is the common environment variance, $\sigma_{C}^{2}$.
+- `unique_env_component` is the unique environment variance, $\sigma_{E}^{2}$.
+
+Based on this, we can defined the heritability of the phenotype $y$ as
+
+$$h = \frac{\sigma_{A}^{2}}{\sigma_{A}^{2} + \sigma_{C}^{2} + \sigma_{E}^{2}}$$
+
+which in R code becomes:
+
+```{r}
+h <- additive_genetic_component / (additive_genetic_component + common_env_component + unique_env_component)
+h
+```
+
+
+## ADE Model
+
+If we instead want to use the mixed model fitted above to get ADE estimates, we use the following formulas:
+
+$$\sigma_{A}^{2} = 3 \text{Var}(u_{j}) - \text{Var}(u_{kj})$$
+$$\sigma_{D}^{2} = 2\text{Var}(u_{j}) - 2 \text{Var}(u_{kj})$$
+
+$$\sigma_{E}^{2} = \text{Var}(\epsilon_{ij})$$
+
+In R code, using the values in `varcomps` that we saved above, this becomes:
+
+```{r}
+(additive_genetic_component <- 3 * varcomps[["VarU_j"]] - varcomps[["VarU_kj"]])
+(dominance_genetic_component <- 2 * varcomps[["VarU_kj"]] - 2 * varcomps[["VarU_j"]])
+(unique_env_component <- varcomps[["Var_eps"]])
+```
+
+Some comments:
+
+- `additive_genetic_component` is the additive genetic variance, $\sigma_{A}^{2}$.
+- `dominance_genetic_component` is the dominance genetic variance, $\sigma_{D}^{2}$.
+- `unique_env_component` is the unique environment variance, $\sigma_{E}^{2}$.
+
+Note that $\sigma_{D}^{2}$ is estimated to $\hat{\sigma}_{D}^{2} = -2.4$, i.e., a negative variance. This means that the ADE model is not appropriate for these data, which again is not surprising, since I simulated the data based on an ACE model. 
+
+# Comparing the ACE Model to Simplified Versions
+
+We may be interested in comparing the ACE model to the simpler CE model and AE model. Each of these simplifications require fitting an additional linear mixed model, which we can compare to the ACE model.
+
+## CE Model
+
+We fit the CE model by omitting the term $u_{kj}$ from the full mixed model. This is the following model
+
+$$y_{ij} = \beta_{0} + u_{j} + \epsilon_{ij}$$
+
+which we can define with R code as
+
+```{r}
+mod_CE <- lmer(formula = y ~ (1 | j), data = dat, REML = FALSE)
+```
+
+Comments:
+
+- Since we don't have an additive genetic component, there is now only a single level in the hierarchy, which is a random intercept per twin pair, specified by `(1|j)`.
+
+```{r}
+summary(mod_CE)
+```
+
+Since the CE model is nested in the larger model, we can compare them using a likelihood ratio test. This is done by the `anova()` function, which also includes comparisons in terms of AIC and BIC. In this case the evidence is overwhelming that the ACE model is a better fit to the data than the CE model.
+
+```{r}
+anova(mod, mod_CE)
+```
+
+In this case we don't go on with the CE model, but if our data said that this model was better, we would obtain the variance components as follows:
+
+$$\sigma_{C}^{2} = \text{Var}(u_{j})$$
+
+$$\sigma_{E}^{2} = \text{Var}(\epsilon_{ij})$$
+
+That is, directly from `mod_CE`. The estimates would be the following:
+
+```{r}
+print(VarCorr(mod_CE), comp = "Variance")
+```
+
+
+## AE Model
+
+The AE model is also a special case of the linear mixed model fitted above. It has the same formulation
+
+$$y_{ij} = \beta_{0} + u_{kj} + u_{j} + \epsilon_{ij}$$
+
+but we impose the constraint that the two random effects have identical variances,
+
+$$\text{Var}(u_{kj}) = \text{Var}(u_{j})$$
+
+Hence, the AE model has one less parameter (variance component) to estimate than the ACE model, since we enforce the two to be equal. In order to enforce the constraint on equal variance, we need a function `equal_variance_fun()` that I have defined. We just source it into this document. Take a look at the source code if you want to dig deeper.
+
+```{r}
+source("code/equal_variance_fun.R")
+```
+
+We fit the AE model using the same formula as for the linear mixed model, but include the `equal_variance_fun()` as an additional argument.
+
+```{r}
+mod_AE <- lmer(
+  formula = y ~ (1 | j / k), data = dat, REML = FALSE,
+  control = lmerControl(
+    optimizer = equal_variance_fun, 
+    calc.derivs = FALSE
+    )
+  )
+```
+
+We can now look at the output.
+
+```{r}
+summary(mod_AE)
+```
+
+Note that the two variance components are equal, as enforced.
+
+```{r}
+print(VarCorr(mod_AE), comp = "Variance")
+```
+
+The variance components of the AE model are related to the variance components of our mixed model through the same formulas as in the section on the ACE model above. However, since this is a new model we save new variance components:
+
+```{r}
+varcomps_AE <- as.data.frame(VarCorr(mod_AE))[, "vcov"]
+names(varcomps_AE) <- c("VarU_kj", "VarU_j", "Var_eps")
+varcomps_AE
+```
+
+
+In R code, using the values in `varcomps_AE`, this becomes:
+
+```{r}
+(additive_genetic_component <- 2 * varcomps_AE[["VarU_kj"]])
+(common_env_component_equals_zero <- varcomps_AE[["VarU_j"]] - varcomps_AE[["VarU_kj"]])
+(unique_env_component <- varcomps_AE[["Var_eps"]])
+```
+
+Note that the common environment component is exactly zero, as is required by definition, since this is an AE model.
+
+The heritiability estimate is thus
+
+$$h = \frac{\sigma_{A}^{2}}{\sigma_{A}^{2} + \sigma_{E}^{2}}$$
+
+which in R code becomes:
+
+```{r}
+additive_genetic_component / (additive_genetic_component + unique_env_component)
+```
+
+
+Since the AE model is nested in the ACE model, we can compare them using a likelihood ratio test. However, because of the trick used to constrain the `mod_AE`, the usual `anova()` function will not return the right results, because it does not understand that `mod_AE` has one degree of freedom less than the full `mod`. I have hence made a function `compare_ACE_AE()` for this, which we now source. Again you can look at the script if interested.
+
+```{r}
+source("code/compare_ACE_AE.R")
+```
+
+We then can compare the models.
+
+```{r}
+compare_ACE_AE(mod, mod_AE)
+```
+
+The output shows that the ACE model is much better, since it has lower AIC and BIC, and the likelihood test is significant.
+
+
+
+
+# Uncertainty Estimates
+
+We can compute confidence intervals, p-values, etc, for the variance components and the heritability estimates. However, I suggest we wait with this additional layer of complexity until you have tried the model on some data, and compared to OpenMx.
+
+# Adding Covariates and Smoothing Splines
+
+This is in principle straightforward, but I suggest we deal with it later.

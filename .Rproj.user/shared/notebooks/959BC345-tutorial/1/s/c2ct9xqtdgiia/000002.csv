@@ -1,0 +1,2 @@
+"0","mod <- lmer(formula = y ~ (1 | j / k), "
+"0","            data = dat, REML = FALSE)"

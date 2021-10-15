@@ -1,0 +1,109 @@
+library(tidyverse)
+library(mvtnorm)
+library(nlme)
+n3 <- 1000 # twin pairs
+n2 <- 2 # siblings in each twin pair (obviously)
+n1 <- 1 # measurements per twin
+varA2 <- 2 # additive genetic component (A)
+varC2 <- 1 # common environment component (C)
+varE2 <- .1 # unique environment component (E)
+CovA <- list(
+MZ = varA2 * matrix(1, nrow = 2, ncol = 2),
+DZ = varA2 * matrix(c(1, .5, .5, 1), nrow = 2, ncol = 2)
+)
+CovC <- varC2 * matrix(1, nrow = 2, ncol = 2)
+dat <- tibble(
+i = seq_len(n3), # pair ID
+type = sample(c("DZ", "MZ"), n3, replace = TRUE)
+) %>%
+uncount(n2, .id = "j") %>%
+nest_by(i, type, .keep = TRUE) %>%
+pmap_dfr(function(i, type, data){
+data %>%
+mutate(
+A = c(rmvnorm(1, sigma = CovA[[!!type]])),
+C = c(rmvnorm(1, sigma = CovC)),
+E = rnorm(2, sd = sqrt(varE2)),
+y = A + C + E,
+k = if_else(type == "DZ", row_number(), 1L)
+)
+}) %>%
+ungroup() %>%
+select(i, j, k, type, y)
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lme4)
+library(gamm4)
+saveRDS(dat, file = "data/example_data.rds")
+dat <- readRDS("data/example_data.rds")
+head(dat)
+set.seed(123)
+library(tidyverse)
+library(mvtnorm)
+library(nlme)
+n3 <- 1000 # twin pairs
+n2 <- 2 # siblings in each twin pair (obviously)
+n1 <- 1 # measurements per twin
+varA2 <- 2 # additive genetic component (A)
+varC2 <- 1 # common environment component (C)
+varE2 <- .1 # unique environment component (E)
+CovA <- list(
+MZ = varA2 * matrix(1, nrow = 2, ncol = 2),
+DZ = varA2 * matrix(c(1, .5, .5, 1), nrow = 2, ncol = 2)
+)
+CovC <- varC2 * matrix(1, nrow = 2, ncol = 2)
+dat <- tibble(
+i = seq_len(n3), # pair ID
+type = sample(c("DZ", "MZ"), n3, replace = TRUE)
+) %>%
+uncount(n2, .id = "j") %>%
+nest_by(i, type, .keep = TRUE) %>%
+pmap_dfr(function(i, type, data){
+data %>%
+mutate(
+A = c(rmvnorm(1, sigma = CovA[[!!type]])),
+C = c(rmvnorm(1, sigma = CovC)),
+E = rnorm(2, sd = sqrt(varE2)),
+y = A + C + E,
+k = if_else(type == "DZ", row_number(), 1L)
+)
+}) %>%
+ungroup() %>%
+select(i, j, k, type, y)
+saveRDS(dat, file = "data/example_data.rds")
+dat
+set.seed(1233)
+library(tidyverse)
+library(mvtnorm)
+library(nlme)
+n3 <- 1000 # twin pairs
+n2 <- 2 # siblings in each twin pair (obviously)
+n1 <- 1 # measurements per twin
+varA2 <- 2 # additive genetic component (A)
+varC2 <- 1 # common environment component (C)
+varE2 <- .1 # unique environment component (E)
+CovA <- list(
+MZ = varA2 * matrix(1, nrow = 2, ncol = 2),
+DZ = varA2 * matrix(c(1, .5, .5, 1), nrow = 2, ncol = 2)
+)
+CovC <- varC2 * matrix(1, nrow = 2, ncol = 2)
+dat <- tibble(
+i = seq_len(n3), # pair ID
+type = sample(c("DZ", "MZ"), n3, replace = TRUE)
+) %>%
+uncount(n2, .id = "j") %>%
+nest_by(i, type, .keep = TRUE) %>%
+pmap_dfr(function(i, type, data){
+data %>%
+mutate(
+A = c(rmvnorm(1, sigma = CovA[[!!type]])),
+C = c(rmvnorm(1, sigma = CovC)),
+E = rnorm(2, sd = sqrt(varE2)),
+y = A + C + E,
+k = if_else(type == "DZ", row_number(), 1L)
+)
+}) %>%
+ungroup() %>%
+select(i, j, k, type, y)
+saveRDS(dat, file = "data/example_data.rds")
+dat
